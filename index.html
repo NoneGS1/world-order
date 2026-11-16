@@ -170,6 +170,18 @@ main.wide { max-width: 1520px; }
 .map .game { cursor: pointer; stroke: rgba(5,9,13,.9); }
 @media (prefers-reduced-motion: no-preference) { .map .game { transition: fill .35s, fill-opacity .35s; } }
 .map .game:hover { filter: brightness(1.3); }
+.gmo-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 12px; }
+.gmo { border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; display: grid; gap: 8px; align-content: start; }
+.gmo-h { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; } .gmo-h .chip { margin-left: auto; }
+.gmo-c { display: grid; grid-template-columns: auto 1fr; gap: 8px; font-size: 13.5px; border-left: 3px solid var(--cc); padding-left: 8px; }
+.gmo-c svg { color: var(--cc); margin-top: 2px; }
+.how-steps { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; }
+.how-steps > div { display: grid; gap: 4px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; font-size: 13px; }
+.how-steps b { font-family: var(--f-display); letter-spacing: .04em; }
+.how-steps span { color: var(--muted); }
+.inbox-row { display: grid; grid-template-columns: auto 1fr auto; gap: 10px; align-items: center; border-top: 1px solid var(--line); padding-top: 10px; }
+.inbox-t { font-size: 13px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+@media (max-width: 640px) { .inbox-row { grid-template-columns: auto 1fr; } .inbox-row > .row { grid-column: 1 / -1; } }
 .map .world { cursor: pointer; stroke: rgba(5,9,13,.9); stroke-width: .5; }
 .map .world:hover { filter: brightness(1.45); }
 .map .lbl.wl { font-family: var(--f-display); font-weight: 600; letter-spacing: .08em; fill: rgba(255,255,255,.5); text-transform: uppercase; }
@@ -549,6 +561,7 @@ const COLOR = Object.fromEntries(TEMPLATE.map(t => [t[0], t[7]]));
 const GAME_CODES = new Set(TEMPLATE.map(t => t[0]));
 const START_DATE = '2027-01-04';
 const AP_PER_TURN = 3;
+const PROPOSALS_PER_TURN = 2; /* treaty proposals each country may send per turn */
 const ACTIONS = [
   ['Economy', [['tax_cut','Cut taxes',1,0,'Boost growth and approval; costs treasury'],['tax_raise','Raise taxes',1,0,'Fill the treasury; voters will notice'],['stimulus','Stimulus package',1,0,'Fast growth, bigger debt'],['infrastructure','Infrastructure programme',1,0,'Slow payoff over several turns'],['tariffs','Impose tariffs',1,1,'Protect industry, anger the target'],['lift_tariffs','Lift tariffs',1,1,'Open trade with a country']]],
   ['Domestic', [['social','Social spending',1,0,'Raise approval and stability'],['anticorruption','Anti-corruption drive',1,0,'Stability and reputation over time'],['crackdown','Crack down on protests',1,0,'Order now, reputation later'],['media','Media campaign',1,0,'Shape opinion at home'],['elections','Call early elections',1,0,'Risky reset of your mandate']]],
@@ -1006,6 +1019,7 @@ function newsIsNew() { const t = Math.max(0, ...Object.values(S.news).map(n => n
 function tabBadges() {
   const b = {}; const um = unreadMap(); const n = Object.values(um).reduce((a, x) => a + x, 0);
   if (n) b.diplomacy = n > 99 ? '99+' : String(n);
+  if (gmView()) { const k = aiInbox().length; if (k) b.diplomacy = String(k); }
   if (myCode() && S.game && S.game.phase === 'orders' && currentOrder()?.turn !== S.game.turn) b.orders = '!';
   if (newsIsNew()) b.news = '•';
   if (gmView() && S.game && waitingPlayers().length) b.gm = String(waitingPlayers().length);
@@ -1422,6 +1436,7 @@ function viewOrders() {
     <div class="stack" style="gap:2px"><span class="label">Turn ${g.turn} · ${esc(fmtRange(g.date))}</span><h2>Orders for ${esc(cname(code))}</h2></div>
     <div class="tokens" aria-label="${Math.max(left, 0)} of ${AP_PER_TURN} action points left">${Array.from({ length: Math.max(AP_PER_TURN, used) }, (_, i) => `<span class="tok ${i >= AP_PER_TURN ? 'over' : i < used ? 'used' : ''}">AP</span>`).join('')}<span class="mono" style="margin-left:4px">${Math.max(left, 0)} left</span></div>
   </div>
+  ${howTurnWorks()}
   ${locked ? `<div class="notice alert">Orders are locked while the Game Master resolves this turn. You can still read and message.</div>` : ''}
   ${submitted && !locked ? `<div class="notice">Orders sent for turn ${g.turn}. You can change them until the deadline.</div>` : ''}
   ${used > AP_PER_TURN ? `<div class="notice alert">You're ${used - AP_PER_TURN} AP over the limit. Remove an order before sending.</div>` : ''}
@@ -1438,6 +1453,66 @@ function viewOrders() {
   </div>
   <div class="row"><button class="btn big primary" data-act="submitOrders" ${locked || used > AP_PER_TURN || S.busy ? 'disabled' : ''}>${submitted ? 'Update orders' : 'Send orders'}</button>
   <span class="muted" style="font-size:13px">Standing policies stay in force if you skip a turn.</span></div>`;
+}
+
+/* GM: every player's orders for this turn, card by card. */
+function gmOrdersPanel() {
+  const g = S.game; if (!g) return '';
+  const seats = sortedCodes().map(c => [c, seatOf(c)]).filter(([, sid]) => sid);
+  const rows = seats.map(([c, sid]) => { const o = S.allOrders[sid]; const ok = o?.turn === g.turn;
+    const who = String(sid).startsWith('test-') ? 'Test seat' : personName(sid);
+    if (!ok) return `<div class="gmo"><div class="gmo-h">${flag(c, 20)}<strong>${esc(cname(c))}</strong><span class="muted">${esc(who)}</span><span class="chip lo">No orders yet</span></div></div>`;
+    const ap = (o.actions || []).reduce((a, x) => a + (x.cost || 0), 0) + (o.free ? 1 : 0);
+    return `<div class="gmo"><div class="gmo-h">${flag(c, 20)}<strong>${esc(cname(c))}</strong><span class="muted">${esc(who)}</span><span class="chip ${ap > AP_PER_TURN ? 'lo' : 'hi'}">${ap}/${AP_PER_TURN} AP</span></div>
+      ${(o.actions || []).map(a => { const d = ACTION_BY_KEY[a.key] || { label: a.key, cat: 'Economy' };
+        return `<div class="gmo-c" style="--cc:${CAT_COLOR[d.cat] || '#8B9BAD'}">${ico(CAT_ICON[d.cat] || 'pen', 16)}<span><strong>${esc(d.label)}</strong>${a.target ? ` → ${esc(cname(a.target))}${isBackground(a.target) ? ' <span class="muted">(AI-run)</span>' : ''}` : ''} <span class="muted mono" style="font-size:11px">${a.cost} AP</span>${a.detail ? `<div class="muted">${esc(a.detail)}</div>` : ''}</span></div>`; }).join('')}
+      ${o.free ? `<div class="gmo-c" style="--cc:#E8EEF4">${ico('pen', 16)}<span><strong>Wildcard</strong> <span class="muted mono" style="font-size:11px">1 AP</span><div class="muted">${esc(o.free)}</div></span></div>` : ''}
+      ${o.statement ? `<div class="gmo-c" style="--cc:#8B9BAD">${ico('mic', 16)}<span><strong>Statement</strong><div class="muted">“${esc(o.statement)}”</div></span></div>` : ''}
+      ${!(o.actions || []).length && !o.free && !o.statement ? '<p class="muted" style="font-size:13px">Sent with no orders: standing policies continue.</p>' : ''}</div>`; });
+  return `<div class="panel stack" id="gm-orders"><div class="row" style="justify-content:space-between"><h3>${ico('cards', 18)} Orders this turn</h3><span class="label">Turn ${g.turn} · ${seats.filter(([, sid]) => S.allOrders[sid]?.turn === g.turn).length} of ${seats.length} sent</span></div>
+    ${seats.length ? `<div class="gmo-grid">${rows.join('')}</div>` : '<p class="muted">No players seated yet.</p>'}</div>`;
+}
+/* Treaty proposal limits: PROPOSALS_PER_TURN per country per turn, and one open proposal per pair at a time. The GM is not limited. */
+function proposalStats(me) {
+  const ms = allMsgs(), answered = new Set(ms.filter(m => m.ref && (m.kind === 'accept' || m.kind === 'decline')).map(m => m.ref));
+  const sent = ms.filter(m => m.kind === 'proposal' && m.author === me && m.turn === S.game?.turn).length;
+  const open = ch => ms.find(m => m.kind === 'proposal' && m.ch === ch && !answered.has(m.id));
+  return { sent, open };
+}
+function proposalProblem() {
+  if (gmView()) return null; const me = myCode(); if (!me || !S.channel.startsWith('dm:')) return null;
+  const { sent, open } = proposalStats(me), o = open(S.channel);
+  if (o) return o.author === me ? 'Your last proposal here has no answer yet. Wait for a reply before proposing another.' : 'They proposed a treaty to you. Accept or decline it first.';
+  if (sent >= PROPOSALS_PER_TURN) return `You've sent ${PROPOSALS_PER_TURN} treaty proposals this turn, the limit. You can propose again next turn.`;
+  return null;
+}
+/* GM inbox: private threads where a player wrote to a background (AI-run) nation and it hasn't answered. */
+function aiInbox() {
+  const last = {}, handled = readLS('wo-ai-handled', {});
+  allMsgs().forEach(m => { if (m.ch?.startsWith('dm:')) last[m.ch] = m; });
+  return Object.values(last).map(m => { const [a, b] = m.ch.slice(3).split('-'); const bg = isBackground(a) ? a : isBackground(b) ? b : null; return { m, bg, from: bg === a ? b : a }; })
+    .filter(x => x.bg && x.m.author !== x.bg && !isBackground(x.from) && (x.m.ts || 0) > (handled[x.m.ch] || 0)).sort((x, y) => (y.m.ts || 0) - (x.m.ts || 0));
+}
+function aiInboxHtml() {
+  const list = aiInbox();
+  if (!list.length) return `<div class="panel row"><span class="label">${ico('globe', 14)} AI nations inbox</span><span class="muted" style="font-size:13px">No player is waiting for an answer from an AI-run nation.</span></div>`;
+  return `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>${ico('globe', 18)} AI nations inbox</h3><span class="chip hi">${list.length} waiting</span></div>
+    <p class="muted" style="font-size:13px">Players wrote to these AI-run nations. Answer as that nation, or mark it as needing no reply.</p>
+    ${list.map(({ m, bg, from }) => `<div class="inbox-row">${flag(from, 18)}<span class="stack" style="gap:2px;min-width:0"><span><strong>${esc(cname(from))}</strong> → <strong>${esc(cname(bg))}</strong> <span class="muted" style="font-size:12px">${m.turn ? 'Turn ' + m.turn : ''}</span></span>
+      <span class="muted inbox-t">${esc(m.kind === 'proposal' ? 'Treaty proposal: ' + typeLabel(m.proposal?.type) + (m.proposal?.terms ? ' · ' + m.proposal.terms : '') : m.kind === 'accept' ? 'Accepted a proposal' : m.kind === 'decline' ? 'Declined a proposal' : m.text)}</span></span>
+      <span class="row" style="gap:6px;justify-content:flex-end"><button class="btn small primary" data-act="aiOpen" data-code="${bg}" data-ch="${esc(m.ch)}">Answer as ${esc(cname(bg))}</button><button class="btn small" data-act="aiHandled" data-ch="${esc(m.ch)}" data-ts="${m.ts || 0}">No reply needed</button></span></div>`).join('')}</div>`;
+}
+function howTurnWorks() {
+  const open = S.ui.howOpen ?? readLS('wo-how', true);
+  if (!open) return `<div class="row"><button class="btn small" data-act="howToggle">${ico('globe', 14)} How a turn works</button></div>`;
+  return `<div class="panel stack how"><div class="row" style="justify-content:space-between"><h3>How a turn works</h3><button class="btn small" data-act="howToggle">Hide</button></div>
+    <div class="how-steps">
+      <div><b>1 · You give orders</b><span>Play cards, write the details, add a wildcard order or a statement. Nothing changes yet. Orders close at 20:00.</span></div>
+      <div><b>2 · Fixed rules apply</b><span>The budget moves your treasury. Tax and defence policy move approval and military. Improve relations is +5, Denounce is −8. Treaty partners grow closer every turn.</span></div>
+      <div><b>3 · The AI judges the rest</b><span>Every order, its details, your messages and speeches go to an AI. It decides what happens, within realistic limits, and writes the news. The whole world reacts, not only the players.</span></div>
+      <div><b>4 · The Game Master checks</b><span>The GM reviews the result, fixes anything unfair and publishes next morning: news, your new numbers with +/− arrows, and a private briefing.</span></div>
+    </div>
+    <p class="muted" style="font-size:13px"><strong>Details matter.</strong> "Sanctions on Iran" is vague. "Sanctions on Iranian oil exports until enrichment stops, together with Saudi Arabia" gives a clear outcome. Say how big, on what terms, under which conditions.</p></div>`;
 }
 
 /* ----- Diplomacy ----- */
@@ -1479,6 +1554,7 @@ function viewDiplomacy() {
        ${relButtons(cp) ? `<div class="row">${relButtons(cp)}</div>` : ''}`
     : `<div class="thread-h"><span class="globe-badge huge">${ico('globe', 22)}</span><div class="stack" style="gap:2px"><h3>World Assembly</h3><span class="muted" style="font-size:12.5px">Public · every leader and the press can read speeches here</span></div></div>`;
   return `
+  ${gmView() ? aiInboxHtml() : ''}
   ${gmView() ? `<div class="panel row"><span class="label">Speak as</span><select id="speakAsSel" data-change="speakAs" style="max-width:280px"><optgroup label="In play">${sortedCodes().map(c => `<option value="${c}" ${c === me ? 'selected' : ''}>${esc(cname(c))}${S.countries[c].player ? ' (player)' : ''}</option>`).join('')}</optgroup><optgroup label="Rest of the world">${backgroundCodes().map(c => `<option value="${c}" ${c === me ? 'selected' : ''}>${esc(cname(c))}</option>`).join('')}</optgroup></select><span class="muted" style="font-size:13px">You see every channel of the country you pick. Players see only their own.</span></div>` : ''}
   ${!mine && !S.isGM ? `<div class="notice">You can read the World Assembly. Press Join the season on the World screen to take part.</div>` : ''}
   <div class="dip">
@@ -1490,7 +1566,7 @@ function viewDiplomacy() {
         ${isDM && S.ui.propOpen ? `<div class="propbox"><span class="label">${ico('pen', 12)} Treaty proposal to ${esc(cname(cp))}</span><div class="grid2" style="gap:8px"><select id="propType" data-bind="ui.propType">${AGREEMENT_TYPES.map(([k, l]) => `<option value="${k}" ${S.ui.propType === k ? 'selected' : ''}>${l}</option>`).join('')}</select><input type="text" id="propTerms" data-bind="ui.propTerms" value="${esc(S.ui.propTerms)}" placeholder="Terms, e.g. 5% tariff cut on cars for 1 year"></div></div>` : ''}
         <div class="compose-row"><textarea id="compose" data-bind="ui.compose" rows="2" placeholder="${isDM ? `Message ${esc(cname(cp))}… (Enter to send)` : 'Address the Assembly… (Enter to send)'}">${esc(S.ui.compose)}</textarea>
         <button class="btn primary send" data-act="send" aria-label="Send">${isDM && S.ui.propOpen ? 'Propose' : 'Send'}</button></div>
-        <div class="row" style="justify-content:space-between">${isDM ? `<button class="btn small" data-act="toggleProp">${S.ui.propOpen ? 'Cancel proposal' : ico('pen', 13) + ' Propose a treaty'}</button>` : '<span></span>'}
+        <div class="row" style="justify-content:space-between">${isDM ? `<button class="btn small" data-act="toggleProp">${S.ui.propOpen ? 'Cancel proposal' : ico('pen', 13) + ' Propose a treaty'}</button>${!gmView() && isDM && !S.ui.propOpen ? `<span class="muted" style="font-size:12px;margin-left:8px">${proposalStats(me).sent}/${PROPOSALS_PER_TURN} proposals this turn</span>` : ''}` : '<span></span>'}
         <span class="muted" style="font-size:12px">${flag(me, 10)} Sending as ${esc(cname(me))} · only accepted treaties bind</span></div></div>` : ''}
     </section>
   </div>`;
@@ -1543,6 +1619,7 @@ function viewGM() {
     ${(() => { const tests = sortedCodes().filter(c => S.allOrders['test-' + c]?.turn === g.turn); return tests.length ? `<div class="row"><span class="label">Test seats with orders this turn</span>${tests.map(cc).join('')}</div>` : `<p class="muted" style="font-size:13px">Tip: use <strong>View as</strong> at the top right to test any country as its player.</p>`; })()}
     ${claims.length ? `<h3>Waiting to join</h3><div class="stack">${claims.map(([uid]) => `<div class="row lobby-req"><strong>${esc(personName(uid))}</strong><span class="muted">wants to join the season</span><span style="flex:1"></span><button class="btn small primary" data-act="seatOne" data-uid="${uid}">Seat in a random country</button><button class="btn small" data-act="rejectClaim" data-uid="${uid}">Decline</button></div>`).join('')}</div>` : ''}
   </div>
+  ${gmOrdersPanel()}
   <div class="grid2">
     <div class="panel stack"><h3>Orders for GM-run nations</h3><p class="muted" style="font-size:13px">What the countries without a player do this turn. Leave blank to let Claude decide.</p>
       <textarea id="npc" data-bind="ui.npc" placeholder="e.g. Russia masses troops near the Ukrainian border. China offers Brazil a soybean deal.">${esc(S.ui.npc)}</textarea>
@@ -2004,8 +2081,12 @@ document.addEventListener('click', e => {
       quick(() => db.doc('orders/' + seatId()).set(body), 'Orders sent. They resolve after the deadline.');
       break; }
     case 'channel': S.channel = b.dataset.ch; S.ui.propOpen = false; if (typeof syncChannels === 'function') syncChannels(); render(); break;
-    case 'toggleProp': S.ui.propOpen = !S.ui.propOpen; render(); break;
-    case 'send': quick(() => S.ui.propOpen && S.channel.startsWith('dm:') ? sendMsg('proposal', { proposal: { type: S.ui.propType, terms: S.ui.propTerms.trim() } }) : sendMsg('msg')); break;
+    case 'toggleProp': { const why = !S.ui.propOpen && proposalProblem(); if (why) { flash(why, true, 6000); break; } S.ui.propOpen = !S.ui.propOpen; render(); break; }
+    case 'howToggle': { const open = !(S.ui.howOpen ?? readLS('wo-how', true)); S.ui.howOpen = open; writeLS('wo-how', open); render(); break; }
+    case 'aiOpen': S.ui.speakAs = b.dataset.code; S.channel = b.dataset.ch; S.ui.propOpen = false; location.hash = 'diplomacy'; render(); break;
+    case 'aiHandled': { const h = readLS('wo-ai-handled', {}); h[b.dataset.ch] = Number(b.dataset.ts) || Date.now(); writeLS('wo-ai-handled', h); render(); break; }
+    case 'send': if (S.ui.propOpen && S.channel.startsWith('dm:') && proposalProblem()) { flash(proposalProblem(), true, 6000); break; }
+      quick(() => S.ui.propOpen && S.channel.startsWith('dm:') ? sendMsg('proposal', { proposal: { type: S.ui.propType, terms: S.ui.propTerms.trim() } }) : sendMsg('msg')); break;
     case 'reply': S.channel = b.dataset.ch; quick(() => sendMsg(b.dataset.kind, { ref: b.dataset.id, text: '' })); break;
     case 'joinSeason': quick(() => db.doc('claims/' + S.me.id).set({ join: true, ts: Date.now() }), "You've joined. Your country is revealed when the season begins."); break;
     case 'leaveSeason': quick(() => db.doc('claims/' + S.me.id).delete(), 'You left the season.'); break;

@@ -1455,6 +1455,15 @@ function viewOrders() {
   <span class="muted" style="font-size:13px">Standing policies stay in force if you skip a turn.</span></div>`;
 }
 
+/* GM: switch countries in or out of play during the season. A switched-off country becomes a background nation: its stats freeze, it still reacts in the news. */
+function gmCountriesPanel() {
+  const every = allCodes(), on = every.filter(isActive);
+  return `<div class="panel stack" id="gm-countries"><div class="row" style="justify-content:space-between"><h3>${ico('globe', 18)} Countries in play</h3><span class="muted" style="font-size:13px">${on.length} in play · ${every.length - on.length} background · countries with a player can't be switched off</span></div>
+    <p class="muted" style="font-size:13px">Switch a country on to bring it into play (run by you, or seat a new player in it). Switch it off and it becomes an AI-run background nation: its stats freeze, but it keeps reacting in the news and relations.</p>
+    <div class="roster">${every.map(c => { const uid = S.countries[c].player, a = isActive(c);
+      return `<div class="roster-i ${uid ? 'on' : ''} ${a ? '' : 'off'}">${flag(c, 22)}<span class="stack" style="gap:0;min-width:0"><strong>${esc(cname(c))}</strong><span class="muted" style="font-size:12.5px">${!a ? 'Background nation · AI-run' : uid ? esc(personName(uid)) : 'Run by you'}</span></span>
+        <button class="switch ${a ? 'is-on' : ''}" data-act="toggleActive" data-code="${c}" role="switch" aria-checked="${a}" aria-label="${esc(cname(c))} in play" ${uid ? 'disabled title="This country has a player"' : ''}><i></i></button></div>`; }).join('')}</div></div>`;
+}
 /* GM: every player's orders for this turn, card by card. */
 function gmOrdersPanel() {
   const g = S.game; if (!g) return '';
@@ -1617,9 +1626,12 @@ function viewGM() {
       return `<tr><td>${cc(c)} ${esc(cname(c))}</td><td>${esc(personName(uid))}</td><td>${ok ? `<span class="chip hi">Sent</span> <span class="muted" style="font-size:12px">${(o.actions || []).length} cards${o.free ? ' + wildcard' : ''}</span>` : `<span class="chip lo">Missing</span>`}</td><td><button class="btn small" data-act="unassign" data-code="${c}">Remove player</button></td></tr>`; }).join('') : `<tr><td colspan="4" class="muted">No players yet. Send your club the site link; they sign in with their @newuu.uz account and press Join the season. Players who join appear below.</td></tr>`}
     </tbody></table></div>
     ${(() => { const tests = sortedCodes().filter(c => S.allOrders['test-' + c]?.turn === g.turn); return tests.length ? `<div class="row"><span class="label">Test seats with orders this turn</span>${tests.map(cc).join('')}</div>` : `<p class="muted" style="font-size:13px">Tip: use <strong>View as</strong> at the top right to test any country as its player.</p>`; })()}
-    ${claims.length ? `<h3>Waiting to join</h3><div class="stack">${claims.map(([uid]) => `<div class="row lobby-req"><strong>${esc(personName(uid))}</strong><span class="muted">wants to join the season</span><span style="flex:1"></span><button class="btn small primary" data-act="seatOne" data-uid="${uid}">Seat in a random country</button><button class="btn small" data-act="rejectClaim" data-uid="${uid}">Decline</button></div>`).join('')}</div>` : ''}
+    ${claims.length ? `<h3>Waiting to join</h3><div class="stack">${claims.map(([uid]) => `<div class="row lobby-req"><strong>${esc(personName(uid))}</strong><span class="muted">wants to join the season</span><span style="flex:1"></span><button class="btn small primary" data-act="seatOne" data-uid="${uid}">Seat in a random country</button>
+      <select data-change="seatPick" data-uid="${uid}" aria-label="Choose a country for ${esc(personName(uid))}" style="max-width:220px"><option value="">…or choose a country</option>${(() => { const on = sortedCodes().filter(c => !S.countries[c].player), off = allCodes().filter(c => !isActive(c) && !S.countries[c].player);
+        return (on.length ? `<optgroup label="Free, in play">${on.map(c => `<option value="${c}">${esc(cname(c))}</option>`).join('')}</optgroup>` : '') + (off.length ? `<optgroup label="Switched off (comes into play)">${off.map(c => `<option value="${c}">${esc(cname(c))}</option>`).join('')}</optgroup>` : ''); })()}</select><button class="btn small" data-act="rejectClaim" data-uid="${uid}">Decline</button></div>`).join('')}</div>` : ''}
   </div>
   ${gmOrdersPanel()}
+  ${gmCountriesPanel()}
   <div class="grid2">
     <div class="panel stack"><h3>Orders for GM-run nations</h3><p class="muted" style="font-size:13px">What the countries without a player do this turn. Leave blank to let Claude decide.</p>
       <textarea id="npc" data-bind="ui.npc" placeholder="e.g. Russia masses troops near the Ukrainian border. China offers Brazil a soybean deal.">${esc(S.ui.npc)}</textarea>
@@ -1968,10 +1980,13 @@ async function drawCountries(reshuffle) {
   for (const uid of pool.slice(n)) await db.doc('claims/' + uid).set({ join: true, ts: Date.now() });
   return { seated: n, left: pool.length - n };
 }
-async function seatOne(uid) {
-  const free = shuffle(sortedCodes().filter(c => !S.countries[c].player)); if (!free.length) throw new Error('No free country in play. Switch one on first.');
-  const code = free[0], ag = S.gm.agendas?.[code];
-  await S.db.doc('countries/' + code).update({ player: uid }); await S.db.doc('claims/' + uid).delete();
+/* Seat one waiting player. With no code: a random free country in play, or, if every one is taken,
+   a random switched-off country, which comes back into play. */
+async function seatOne(uid, pick) {
+  const freeOn = shuffle(sortedCodes().filter(c => !S.countries[c].player)), freeOff = shuffle(allCodes().filter(c => !isActive(c) && !S.countries[c].player));
+  const code = pick || freeOn[0] || freeOff[0]; if (!code || S.countries[code]?.player) throw new Error('No free country left.');
+  const ag = S.gm.agendas?.[code];
+  await S.db.doc('countries/' + code).update({ player: uid, active: true }); await S.db.doc('claims/' + uid).delete();
   if (ag) await S.db.doc(`briefings/${uid}/items/agenda`).set({ agenda: ag });
   notifyBot({ type: 'request_approved', uid, code });
   return code;
@@ -2052,6 +2067,7 @@ document.addEventListener('change', e => {
   if (k === 'speakAs') { S.ui.speakAs = el.value; S.channel = 'assembly'; }
   if (k === 'playAs') { setPlayAs(el.value); return; }
   if (k === 'contactNation' && el.value) { const me = gmView() ? S.ui.speakAs : myCode(); if (me) { S.channel = channelFor(me, el.value); S.ui.propOpen = false; if (typeof syncChannels === 'function') syncChannels(); } }
+  if (k === 'seatPick' && el.value) { const uid = el.dataset.uid, code = el.value; guard(async () => { await seatOne(uid, code); }, `${personName(uid)} now leads ${cname(code)}.`); return; }
   if (k === 'goto' && el.value) { S.sel = el.value; MAP?.zoomToCountry(el.value); }
   render();
 });
@@ -2139,7 +2155,7 @@ document.addEventListener('click', e => {
       S.myVote = { ...v, ts: Date.now() }; quick(() => db.doc('votes/' + seatId()).set(S.myVote), 'Vote saved. Only the Game Master sees it.'); break; }
     case 'draw': guard(async () => { const r = await drawCountries(false); flash(`${r.seated} player(s) drawn a country${r.left ? `; ${r.left} still waiting` : ''}.`); }); break;
     case 'redraw': guard(async () => { const r = await drawCountries(true); flash(`Countries drawn again for ${r.seated} player(s).`); }); break;
-    case 'seatOne': guard(async () => { const code = await seatOne(b.dataset.uid); flash(`Seated in ${cname(code)}.`); }); break;
+    case 'seatOne': guard(async () => { const code = await seatOne(b.dataset.uid); flash(`Seated in ${cname(code)}${S.countries[code] && !isActive(code) ? ', now back in play' : ''}.`); }); break;
     case 'closeReveal': writeLS('wo-reveal-' + (S.game?.season || 1) + '-' + seatKey(), myCode()); drawReveal(); break;
     case 'pref': { if (!S.auth) break; const k = b.dataset.key, next = { ...prefs(), [k]: !prefs()[k] }; S.profile = { ...(S.profile || {}), notify: next }; render(); quick(() => db.doc('profiles/' + S.me.id).set({ notify: next }, { merge: true })); break; }
     case 'tgLink': botCall('/wo/link', {}).then(r => { S.tg = { ...(S.tg || {}), linkUrl: r.url }; render(); }).catch(() => flash("Couldn't reach the club bot. Try again in a minute.", true)); break;

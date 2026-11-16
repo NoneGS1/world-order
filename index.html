@@ -866,8 +866,8 @@ function draw() {
   const msgBox = document.getElementById('msgs'); const stick = msgBox ? (msgBox.scrollHeight - msgBox.scrollTop - msgBox.clientHeight < 40) : true;
   markSeen(); drawHeader(); drawTicker();
   const main = document.getElementById('main');
-  main.classList.toggle('wide', S.view === 'map');
   main.innerHTML = viewHtml();
+  main.classList.toggle('wide', S.shown === 'map');
   const slot = document.getElementById('mapSlot');
   if (slot) { const M = buildMap(); if (M) { slot.prepend(M.svg); paintMap(); } else slot.insertAdjacentHTML('afterbegin', fallbackGrid()); }
   if (fid) { const n = document.getElementById(fid); if (n) { n.focus(); try { if (s0 != null) n.setSelectionRange(s0, s1); } catch (e) {} } }
@@ -925,8 +925,8 @@ function drawHeader() {
   if (mc) tabs.push(['nation','Nation','flag'], ['orders','Orders','cards']);
   tabs.push(['diplomacy','Diplomacy','chat'], ['news','News','news']);
   if (gmView()) tabs.push(['gm','GM','crown']);
-  if (S.view !== 'profile' && !tabs.some(t => t[0] === S.view)) S.view = 'map';
-  document.getElementById('tabs').innerHTML = tabs.map(([k, l, i]) => `<a href="#${k}" ${S.view === k ? 'aria-current="page"' : ''}><span class="tico">${ico(i, 18)}${badges[k] ? `<span class="badge ${badges[k] === '•' ? 'dot' : ''}">${badges[k] === '•' ? '' : badges[k]}</span>` : ''}</span><span class="tl">${l}</span></a>`).join('');
+  S.shown = S.view === 'profile' || tabs.some(t => t[0] === S.view) ? S.view : 'map';
+  document.getElementById('tabs').innerHTML = tabs.map(([k, l, i]) => `<a href="#${k}" ${S.shown === k ? 'aria-current="page"' : ''}><span class="tico">${ico(i, 18)}${badges[k] ? `<span class="badge ${badges[k] === '•' ? 'dot' : ''}">${badges[k] === '•' ? '' : badges[k]}</span>` : ''}</span><span class="tl">${l}</span></a>`).join('');
 }
 /* ---- Unread tracking (per browser, per seat) ---- */
 const seatKey = () => S.playAs ? 'test-' + S.playAs : (S.me?.id || 'anon');
@@ -1034,7 +1034,7 @@ function viewHtml() {
     pre += `<div class="notice row" style="justify-content:space-between"><span><strong>Test mode · ${n}.</strong> You see exactly what ${n}'s player sees. Orders and messages you send count for ${n}${real ? '; your test orders are used only if its real player sends none' : ''}.</span><button class="btn small" data-act="exitTest">${ico('crown', 14)} Back to Game Master</button></div>`; }
   pre += hudHtml();
   if (S.game === undefined && S.view !== 'map') return pre + `<div class="empty"><h2>Connecting to the war room</h2><p>The world loads in a moment.</p></div>`;
-  switch (S.view) {
+  switch (S.shown || S.view) {
     case 'nation': return pre + viewNation();
     case 'orders': return pre + viewOrders();
     case 'diplomacy': return pre + (S.game ? viewDiplomacy() : notStarted());
@@ -1812,6 +1812,7 @@ document.addEventListener('change', e => {
   render();
 });
 document.addEventListener('click', e => {
+  const link = e.target.closest('a[href^="#"]'); if (link && link.getAttribute('href') === location.hash) { route(); return; } /* same address: browsers fire no hashchange, so open the screen ourselves */
   const b = e.target.closest('[data-act]'); if (!b) return;
   const a = b.dataset.act, db = S.db;
   switch (a) {

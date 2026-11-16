@@ -170,6 +170,10 @@ main.wide { max-width: 1520px; }
 .map .game { cursor: pointer; stroke: rgba(5,9,13,.9); }
 @media (prefers-reduced-motion: no-preference) { .map .game { transition: fill .35s, fill-opacity .35s; } }
 .map .game:hover { filter: brightness(1.3); }
+.map .world { cursor: pointer; stroke: rgba(5,9,13,.9); stroke-width: .5; }
+.map .world:hover { filter: brightness(1.45); }
+.map .lbl.wl { font-family: var(--f-display); font-weight: 600; letter-spacing: .08em; fill: rgba(255,255,255,.5); text-transform: uppercase; }
+.mapbox.fog .world { pointer-events: none; }
 .map .selpath { fill: none; stroke: var(--accent); stroke-width: 2.2; vector-effect: non-scaling-stroke; filter: url(#wo-glow); pointer-events: none; }
 .map .lbl { font-family: var(--f-mono); font-size: 9.5px; font-weight: 600; fill: #fff; paint-order: stroke; stroke: rgba(5,9,13,.9); stroke-width: 2.5px; stroke-linejoin: round; pointer-events: none; letter-spacing: .04em; }
 .map .pin { fill: var(--accent); stroke: #05090D; stroke-width: 1.2; vector-effect: non-scaling-stroke; pointer-events: none; }
@@ -310,8 +314,8 @@ details.tool .tool-body { padding: 0 16px 16px; }
 .switch.is-on i { left: 18px; background: var(--good); }
 @media (prefers-reduced-motion: no-preference) { .switch i { transition: left .15s, background .15s; } }
 .switch[disabled] { opacity: .45; cursor: not-allowed; }
-.map .game.off { cursor: grab; }
-.map .game.off:hover { filter: none; }
+.map .game.off { stroke: rgba(5,9,13,.9) !important; stroke-width: .5; }
+.map .game.off:hover { filter: brightness(1.45); }
 /* Random seating, reveal, profile */
 .mystery { display: grid; place-items: center; width: 52px; height: 52px; border-radius: 10px; border: 1px dashed rgba(242,169,59,.6); color: var(--accent); font-family: var(--f-display); font-size: 30px; font-weight: 800; background: var(--accent-soft); flex: none; }
 .mystery.big { width: 84px; height: 84px; font-size: 48px; margin: 6px 0; }
@@ -614,7 +618,7 @@ function addDays(iso, n) { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDate(
 function fmtDate(iso) { if (!iso) return ''; const [y, m, d] = iso.split('-').map(Number); return `${d} ${MONTHS[m - 1]} ${y}`; }
 function fmtRange(iso) { if (!iso) return ''; const end = addDays(iso, 13); return `${fmtDate(iso).replace(/ \d{4}$/, '')} – ${fmtDate(end)}`; }
 function level(v) { return v >= 67 ? ['High','hi',3] : v >= 34 ? ['Medium','mid',2] : ['Low','lo',1]; }
-function cname(code) { return S.countries[code]?.name || code; }
+function cname(code) { return S.countries[code]?.name || worldNames()[code] || code; }
 function myCode() { if (S.isGM && S.playAs && S.countries[S.playAs]) return S.playAs; if (!S.me?.id) return null; if (S.game?.phase === 'lobby' && !S.isGM) return null; /* country stays secret until the season begins */ for (const c of Object.values(S.countries)) if (c.player === S.me.id) return c.code; return null; }
 /* Test mode: the GM can play any country as a "test seat" whose data lives under test-<CODE>. */
 const gmView = () => S.isGM && !S.playAs;
@@ -644,6 +648,24 @@ function progressScore(c) { if (!c?.start || !c?.stats) return 30; const avg = S
 function personName(uid) { return S.names[uid] || (String(uid).startsWith('test-') ? 'Test seat' : 'A player'); }
 function setPath(obj, path, val) { const ks = path.split('.'); let o = obj; for (let i = 0; i < ks.length - 1; i++) o = o[ks[i]]; o[ks[ks.length - 1]] = val; }
 const isActive = code => !!S.countries[code] && S.countries[code].active !== false;
+/* The rest of the world. Every other country on the map is a background nation: AI-run, no stats,
+   but it can be clicked, targeted, messaged, and it reacts in the news and in relations. */
+let WORLD_NAMES = null;
+const WORLD_RENAME = { TZA: 'Tanzania', SRB: 'Serbia', COD: 'DR Congo', COG: 'Republic of the Congo', BHS: 'Bahamas', MKD: 'North Macedonia', GNB: 'Guinea-Bissau', CIV: "Côte d'Ivoire", TLS: 'Timor-Leste', SWZ: 'Eswatini', CZE: 'Czechia', PRK: 'North Korea', LAO: 'Laos', SYR: 'Syria', VEN: 'Venezuela', BOL: 'Bolivia', MDA: 'Moldova', VNM: 'Vietnam', TWN: 'Taiwan', PSE: 'Palestine', ESH: 'Western Sahara', ATF: 'French Southern Lands' };
+function worldNames() {
+  if (WORLD_NAMES) return WORLD_NAMES;
+  const t = window.Datamap?.prototype?.worldTopo; if (!t) return {};
+  const o = {}; t.objects.world.geometries.forEach(g => { if (/^[A-Z]{3}$/.test(g.id || '') && g.id !== 'ATA' && !GAME_CODES.has(g.id) && g.properties?.name) o[g.id] = WORLD_RENAME[g.id] || g.properties.name; });
+  return WORLD_NAMES = o;
+}
+const isWorld = code => !S.countries[code] && !!worldNames()[code];
+const knownCode = code => !!S.countries[code] || isWorld(code);
+const isBackground = code => knownCode(code) && !isActive(code);
+const byName = (a, b) => cname(a).localeCompare(cname(b));
+function worldCodes() { return Object.keys(worldNames()).filter(c => !S.countries[c]).sort(byName); }
+/* Background nations: the game countries the GM switched off plus the rest of the world. */
+function backgroundCodes() { return [...Object.keys(S.countries).filter(c => !isActive(c)), ...worldCodes()].sort(byName); }
+function everyCode() { return [...sortedCodes(), ...backgroundCodes()].sort(byName); }
 /* Random seating: players join, the GM draws countries. Before the season starts, players can't see who plays what. */
 const fogged = () => S.game?.phase === 'lobby' && !gmView();
 const waitingPlayers = () => Object.entries(S.claims).filter(([uid, cl]) => cl && !codeByPlayer(uid));
@@ -755,13 +777,13 @@ function buildMap() {
     const g = svg.append('g');
     g.append('path').datum({ type: 'Sphere' }).attr({ class: 'sphere', d: path });
     g.append('path').datum(d3.geo.graticule().step([10, 10])()).attr({ class: 'grat', d: path });
-    const paths = {}, centers = {}, areas = {}, bounds = {};
+    const paths = {}, wpaths = {}, centers = {}, areas = {}, bounds = {};
     const land = g.append('g').attr('class', 'landmass');
     feats.forEach(f => {
-      const game = GAME_CODES.has(f.id);
-      const p = land.append('path').attr({ d: path(f) || '', class: game ? 'land game' : 'land' }).node();
-      if (!game) return;
-      p.dataset.code = f.id; paths[f.id] = p; bounds[f.id] = path.bounds(f);
+      const game = GAME_CODES.has(f.id), world = !game && /^[A-Z]{3}$/.test(f.id || '');
+      const p = land.append('path').attr({ d: path(f) || '', class: game ? 'land game' : world ? 'land world' : 'land' }).node();
+      if (!game && !world) return;
+      p.dataset.code = f.id; (game ? paths : wpaths)[f.id] = p; bounds[f.id] = path.bounds(f);
       let best = f, bestA = path.area(f);
       if (f.geometry.type === 'MultiPolygon') { bestA = -1; f.geometry.coordinates.forEach(c => { const gg = { type: 'Feature', geometry: { type: 'Polygon', coordinates: c } }; const a = path.area(gg); if (a > bestA) { bestA = a; best = gg; } }); }
       const c = path.centroid(best); const n = LABEL_NUDGE[f.id] || [0, 0]; centers[f.id] = [c[0] + n[0], c[1] + n[1]]; areas[f.id] = bestA;
@@ -775,8 +797,9 @@ function buildMap() {
       grp.append('path').attr({ class: 'star', d: 'M0,-3.2L0.9,-1L3.1,-1L1.4,0.4L2,2.7L0,1.3L-2,2.7L-1.4,0.4L-3.1,-1L-0.9,-1Z' });
       const t = grp.append('text').attr({ class: 'capname', x: 4.5, y: 1.2 }).text(city);
       caps[code] = { g: grp.node(), text: t.node(), xy: p }; });
-    const lbls = {};
+    const lbls = {}, wlbls = {};
     Object.entries(centers).forEach(([code, c]) => { if (isNaN(c[0])) return;
+      if (wpaths[code]) { wlbls[code] = lblG.append('text').attr({ class: 'lbl wl', x: c[0], y: c[1] + 2, 'text-anchor': 'middle' }).text(cname(code)).node(); return; }
       lbls[code] = lblG.append('text').attr({ class: 'lbl', x: c[0], y: c[1] + 3, 'text-anchor': 'middle' }).text(code).node(); });
 
     const zoom = d3.behavior.zoom().scaleExtent([1, 10]).size([W, H]).on('zoom', () => {
@@ -793,6 +816,9 @@ function buildMap() {
         el.style.fontSize = ((big ? (name.length > 12 ? 8.5 : 10) : 8.5) / Math.pow(k, 0.85)) + 'px';
         el.setAttribute('y', centers[code][1] + 3 / k); el.style.strokeWidth = (2.5 / Math.pow(k, 0.85)) + 'px';
       });
+      Object.entries(wlbls).forEach(([code, el]) => { const show = areas[code] * k * k > 2200;
+        el.style.display = show && !fogged() ? '' : 'none'; if (!show) return;
+        el.style.fontSize = (7 / Math.pow(k, 0.85)) + 'px'; el.setAttribute('y', centers[code][1] + 2 / k); el.style.strokeWidth = (2 / Math.pow(k, 0.85)) + 'px'; });
       Object.values(caps).forEach(c => { c.g.setAttribute('transform', `translate(${c.xy[0]},${c.xy[1]}) scale(${1 / Math.pow(k, 0.75)})`); c.text.style.display = k >= 2.4 ? '' : 'none'; });
       lblG.attr('opacity', 1);
       pinG.selectAll('circle').attr('r', function () { return Number(this.dataset.r) / Math.pow(k, 0.8); });
@@ -817,16 +843,16 @@ function buildMap() {
       const cx = (W / 2 - t0[0]) / k0, cy = (H / 2 - t0[1]) / k0;
       animate([W / 2 - k * cx, H / 2 - k * cy], k, 300);
     }
-    const offCountry = code => fogged() || (!!S.countries[code] && !isActive(code)); // switched off by the GM: behaves like any other non-playable land
-    svgEl.addEventListener('click', e => { const p = e.target.closest && e.target.closest('path.game'); if (p && !offCountry(p.dataset.code)) { S.sel = p.dataset.code; render(); } });
+    const offCountry = code => fogged() || !knownCode(code); // every country on the map is clickable; only the lobby fog silences it
+    svgEl.addEventListener('click', e => { const p = e.target.closest && e.target.closest('path.game, path.world'); if (p && !offCountry(p.dataset.code)) { S.sel = p.dataset.code; render(); } });
     svgEl.addEventListener('mousemove', e => {
       const tip = document.getElementById('maptip'), box = document.getElementById('mapSlot'); if (!tip || !box) return;
-      const p = e.target.closest && e.target.closest('path.game');
+      const p = e.target.closest && e.target.closest('path.game, path.world');
       if (!p || offCountry(p.dataset.code)) { tip.hidden = true; return; }
-      const code = p.dataset.code, c = S.countries[code]; if (!c) return;
+      const code = p.dataset.code, c = S.countries[code];
       const mine = myCode(), r = box.getBoundingClientRect();
-      tip.innerHTML = `<div class="row" style="gap:8px">${flag(code, 14)}<strong>${esc(c.name)}</strong><span class="muted mono" style="font-size:11px">${esc(CAPITALS[code]?.[0] || '')}</span></div>
-        <div class="muted">${c.player ? (c.player === S.me?.id ? 'You' : 'Led by ' + esc(personName(c.player))) : 'Run by the Game Master'}</div>
+      tip.innerHTML = !c ? `<div class="row" style="gap:8px">${flag(code, 14)}<strong>${esc(cname(code))}</strong></div><div class="muted">Background nation · AI-run</div>${mine ? `<div style="margin-top:4px">${relChip(rel(mine, code))}</div>` : ''}` : `<div class="row" style="gap:8px">${flag(code, 14)}<strong>${esc(c.name)}</strong><span class="muted mono" style="font-size:11px">${esc(CAPITALS[code]?.[0] || '')}</span></div>
+        <div class="muted">${!isActive(code) ? 'Background nation · AI-run' : c.player ? (c.player === S.me?.id ? 'You' : 'Led by ' + esc(personName(c.player))) : 'Run by the Game Master'}</div>
         ${mine && mine !== code ? `<div style="margin-top:4px">${relChip(rel(mine, code))}</div>` : ''}
         <div class="tipstats">${['economy', 'stability', 'military'].map(k => { const v = c.stats[k]; return `<span>${STAT_LABEL[k]}</span><span>${canSeeExact(code) ? v : level(v)[0]}</span>`; }).join('')}</div>`;
       tip.hidden = false;
@@ -834,7 +860,7 @@ function buildMap() {
       tip.style.left = clamp(x + 14, 6, r.width - tw - 6) + 'px'; tip.style.top = (y + th + 20 > r.height ? y - th - 12 : y + 16) + 'px';
     });
     svgEl.addEventListener('mouseleave', () => { const tip = document.getElementById('maptip'); if (tip) tip.hidden = true; });
-    MAP = { svg: svgEl, paths, centers, caps, lbls, linkG: linkG.node(), pinG: pinG.node(), selPath: selPath.node(), NS, zoomTo, zoomToCountry, zoomBy, scaleMarks };
+    MAP = { svg: svgEl, paths, wpaths, wlbls, centers, caps, lbls, linkG: linkG.node(), pinG: pinG.node(), selPath: selPath.node(), NS, zoomTo, zoomToCountry, zoomBy, scaleMarks };
   } catch (e) { console.error(e); MAP = null; }
   return MAP;
 }
@@ -848,7 +874,9 @@ function paintMap() {
   for (const [code, p] of Object.entries(M.paths)) {
     const c = S.countries[code]; let fill = COLOR[code], op = 1;
     if (fog) { fill = '#263647'; op = 1; }
-    else if (!c || !isActive(code)) { fill = 'url(#wo-hatch)'; op = 1; }
+    else if (!c) { fill = 'url(#wo-hatch)'; op = 1; }
+    else if (!isActive(code)) { const v = base ? rel(base, code) : 0; fill = '#2B3846'; op = 1; /* background nation: looks like the rest of the world */
+      if (mode === 'relations' && v) { fill = relLevel(v)[2]; op = .3 + Math.abs(v) / 160; } else if (mode === 'alliances' && partners.has(code)) fill = '#4DB6C9'; }
     else if (mode === 'leaders') op = c.player ? 1 : .62;
     else if (mode === 'relations') { fill = code === base ? '#F2A93B' : relLevel(rel(base, code))[2]; op = code === base ? 1 : .35 + Math.abs(rel(base, code)) / 160; }
     else if (STAT_KEYS.includes(mode)) { const v = c.stats?.[mode] ?? 50; fill = heat(v); op = canSeeExact(code) ? .35 + v / 160 : .8; }
@@ -856,9 +884,17 @@ function paintMap() {
     p.style.fill = fill; p.style.fillOpacity = op;
     p.classList.toggle('sel', code === sel); p.classList.toggle('off', !!c && !isActive(code));
   }
-  if (M.paths[sel] && !fog) M.selPath.setAttribute('d', M.paths[sel].getAttribute('d')); else M.selPath.removeAttribute('d');
+  for (const [code, p] of Object.entries(M.wpaths || {})) {
+    let fill = '#2B3846', op = 1; const v = base ? rel(base, code) : 0;
+    if (fog) fill = '#263647';
+    else if (mode === 'relations' && base && v) { fill = relLevel(v)[2]; op = .3 + Math.abs(v) / 160; }
+    else if (mode === 'alliances' && partners.has(code)) fill = '#4DB6C9';
+    p.style.fill = fill; p.style.fillOpacity = op; p.classList.toggle('sel', code === sel);
+  }
+  const selP = M.paths[sel] || M.wpaths?.[sel];
+  if (selP && !fog) M.selPath.setAttribute('d', selP.getAttribute('d')); else M.selPath.removeAttribute('d');
   Object.entries(M.caps).forEach(([code, c]) => { c.g.classList.toggle('on', code === sel); c.g.classList.toggle('mine', code === mine); c.g.style.display = !fog && (!S.countries[code] || isActive(code)) ? '' : 'none'; });
-  Object.entries(M.lbls || {}).forEach(([code, el]) => { el.style.display = !fog && (!S.countries[code] || isActive(code)) ? '' : 'none'; });
+  Object.entries(M.lbls || {}).forEach(([code, el]) => { el.style.display = !fog ? '' : 'none'; el.classList.toggle('wl', !!S.countries[code] && !isActive(code)); });
   M.pinG.innerHTML = ''; M.linkG.innerHTML = '';
   Object.values(S.countries).forEach(c => { if (fog || !c.player || !isActive(c.code)) return; const ce = M.centers[c.code]; if (!ce) return;
     const k = document.createElementNS(M.NS, 'circle'); k.setAttribute('class', 'pin'); k.setAttribute('cx', ce[0]); k.setAttribute('cy', ce[1] - 10); k.dataset.r = c.code === mine ? 4.5 : 3.2; k.setAttribute('r', k.dataset.r); M.pinG.appendChild(k); });
@@ -869,7 +905,7 @@ function paintMap() {
     const l = document.createElementNS(M.NS, 'path'); l.setAttribute('class', 'link'); if (col) l.style.stroke = col; l.setAttribute('d', `M${a[0]},${a[1]} Q${mx},${my} ${b[0]},${b[1]}`); M.linkG.appendChild(l); });
   if (fog) return M.scaleMarks();
   if (mode === 'alliances' && sel) linkTo([...partners]);
-  if (mode === 'relations' && base) { const rs = sortedCodes().filter(x => x !== base).map(x => [x, rel(base, x)]);
+  if (mode === 'relations' && base) { const rs = everyCode().filter(x => x !== base).map(x => [x, rel(base, x)]);
     linkTo(rs.filter(r => r[1] >= 60).map(r => r[0]), '#4FC38A'); linkTo(rs.filter(r => r[1] <= -60).map(r => r[0]), '#EA5F4C'); }
   M.scaleMarks();
 }
@@ -1103,7 +1139,7 @@ function notStarted() { return `<div class="empty">${ico('globe', 40)}<h2>The se
 /* ----- World map view ----- */
 function viewMap() {
   const mine = myCode();
-  if (!S.sel || !S.countries[S.sel] || !isActive(S.sel)) S.sel = mine || (isActive('USA') ? 'USA' : sortedCodes()[0]);
+  if (!S.sel || !knownCode(S.sel)) S.sel = mine || (isActive('USA') ? 'USA' : sortedCodes()[0]);
   let hero = '';
   if (S.game === null && gmView()) hero = `<div class="hero"><span class="label">Game Master briefing</span><h1>Open the lobby</h1><p>This creates the 20 nations. Players can then sign in, join the season and talk to each other. Nothing runs until you press Begin season.</p><div class="row"><button class="btn big primary" data-act="setup">Open the lobby</button></div></div>`;
   else if (S.game && !mine && !S.isGM && S.me?.id) hero = joinCard();
@@ -1111,7 +1147,7 @@ function viewMap() {
   else hero = turnCard();
   const modes = [['leaders','Leaders'],['relations','Relations'],['economy','Economy'],['stability','Stability'],['military','Military'],['alliances','Treaties']];
   const legend = S.mapMode === 'relations' ? `<span>${esc(cname(mapBase()))}:</span>${REL_LEVELS.map(([, n, c]) => `<span><span class="swatch" style="background:${c}"></span>${n}</span>`).join('')}`
-    : S.mapMode === 'leaders' ? `<span><span class="swatch" style="background:#8B9BAD"></span>Bright = player</span><span><span class="swatch" style="background:#8B9BAD;opacity:.4"></span>Faded = run by GM</span><span><svg width="10" height="10"><circle cx="5" cy="5" r="4" fill="#F2A93B"/></svg>Leader in office</span>`
+    : S.mapMode === 'leaders' ? `<span><span class="swatch" style="background:#8B9BAD"></span>Bright = player</span><span><span class="swatch" style="background:#8B9BAD;opacity:.4"></span>Faded = run by GM</span><span><span class="swatch" style="background:#2B3846"></span>Grey = rest of the world (AI-run)</span><span><svg width="10" height="10"><circle cx="5" cy="5" r="4" fill="#F2A93B"/></svg>Leader in office</span>`
     : S.mapMode === 'alliances' ? `<span><span class="swatch" style="background:#F2A93B"></span>Selected</span><span><span class="swatch" style="background:#4DB6C9"></span>Has an agreement</span>`
     : `<span><span class="swatch" style="background:#4FC38A"></span>High</span><span><span class="swatch" style="background:#F2C94C"></span>Medium</span><span><span class="swatch" style="background:#EA5F4C"></span>Low</span>`;
   const board = sortedCodes().map(c => S.countries[c]).map(c => [c.code, progressScore(c)]).sort((a, b) => b[1] - a[1]).slice(0, 8);
@@ -1122,7 +1158,7 @@ function viewMap() {
         <div class="maptools"><div class="modes" role="group" aria-label="Map mode">${modes.map(([k, l]) => `<button data-act="mode" data-mode="${k}" aria-pressed="${S.mapMode === k}">${l}</button>`).join('')}</div><div class="readout">Drag to move · scroll to zoom</div></div>
         <div class="legend">${legend}</div>
         <div class="zoombar"><div class="modes" role="group" aria-label="Zoom to region">${[['world','World'],['americas','Americas'],['europe','Europe'],['mideast','Mid-East & Africa'],['asia','Asia']].map(([k, l]) => `<button data-act="zoomRegion" data-region="${k}">${l}</button>`).join('')}</div><button class="z" data-act="zoomBy" data-f="1.6" aria-label="Zoom in">+</button><button class="z" data-act="zoomBy" data-f="0.625" aria-label="Zoom out">−</button></div>
-        <select class="goto" id="gotoCountry" data-change="goto" aria-label="Go to a country"><option value="">Go to country…</option>${sortedCodes().map(c => `<option value="${c}">${esc(cname(c))}</option>`).join('')}</select>
+        <select class="goto" id="gotoCountry" data-change="goto" aria-label="Go to a country"><option value="">Go to country…</option><optgroup label="In play">${sortedCodes().map(c => `<option value="${c}">${esc(cname(c))}</option>`).join('')}</optgroup><optgroup label="Rest of the world">${backgroundCodes().map(c => `<option value="${c}">${esc(cname(c))}</option>`).join('')}</optgroup></select>
         <div class="maptip" id="maptip" hidden></div>
       </div>
       ${fogged() ? '' : `<div class="panel stack"><div class="row" style="justify-content:space-between"><h3>Power ranking</h3><span class="label">National progress · out of 60</span></div>
@@ -1149,14 +1185,37 @@ function mysteryPanel() {
   return `<aside class="panel dossier mystery-panel"><span class="label">Classified</span><span class="mystery big">?</span><h2>Your nation is sealed</h2>
     <p class="muted">Which countries are in play, and who leads them, stays secret until the Game Master begins the season. Then the map lights up and you take office.</p></aside>`;
 }
+/* Dossier of a background nation: no stats, but it is part of the world and reacts to the players. */
+function backgroundDossier(code) {
+  const mine = myCode(), c = S.countries[code];
+  const agr = S.agreements.filter(a => (a.parties || []).includes(code));
+  const ties = sortedCodes().filter(x => x !== code).map(x => [x, rel(code, x)]).filter(r => r[1]).sort((a, b) => b[1] - a[1]);
+  const news = Object.values(S.news).sort((a, b) => b.turn - a.turn).flatMap(n => (n.articles || []).filter(a => (a.countries || []).includes(code)).map(a => [n.turn, a])).slice(0, 3);
+  let actions = '';
+  if (S.game && mine && code !== mine) actions += `<button class="btn" data-act="openDm" data-code="${code}">${ico('chat', 16)} Message</button>`;
+  if (gmView() && S.game) actions += `<button class="btn" data-act="speakAs" data-code="${code}">${ico('chat', 16)} Speak as ${esc(cname(code))}</button>`;
+  return `<aside class="panel dossier">
+    <div class="head"><span class="label">Dossier${c ? ' · ' + esc(c.region) : ''}</span>
+      <div class="name">${flag(code, 24)}${esc(cname(code))}</div>
+      ${c ? `<div class="row muted" style="font-size:13.5px">${esc(c.gov)} · ${esc(c.pop)} m people</div>` : ''}
+      <div class="row" style="margin-top:4px"><span class="chip">${ico('globe', 12)} Background nation · AI-run</span></div></div>
+    <p class="muted" style="font-size:13.5px">Not led by a player. It watches what the leaders do and answers with words, deals and pressure in the news.</p>
+    ${mine && code !== mine ? `<div class="stack" style="gap:6px"><span class="label">Relations with ${esc(cname(mine))}</span><div class="row" style="gap:10px">${relChip(rel(mine, code))}<span style="flex:1;min-width:80px">${relBar(rel(mine, code))}</span></div>
+      ${relButtons(code) ? `<div class="row">${relButtons(code)}</div>` : ''}</div>` : ''}
+    <div class="stack" style="gap:6px"><span class="label">Ties with the nations in play</span><div class="row" style="gap:6px">${ties.length ? ties.map(([x, v]) => `<span class="chip ${v > 0 ? 'hi' : 'lo'}">${esc(x)} ${v > 0 ? '+' : ''}${v}</span>`).join('') : '<span class="muted" style="font-size:13px">Neutral towards everyone so far</span>'}</div></div>
+    ${agr.length ? `<div class="stack" style="gap:6px"><span class="label">Agreements</span>${agr.map(a => `<div style="font-size:13.5px"><span class="chip">${esc(typeLabel(a.type))}</span> ${a.parties.filter(p => p !== code).map(cc).join(' ')}</div>`).join('')}</div>` : ''}
+    ${news.length ? `<div class="stack" style="gap:6px"><span class="label">In the news</span>${news.map(([t, a]) => `<div style="font-size:13.5px"><span class="muted mono">T${t}</span> ${esc(a.title)}</div>`).join('')}</div>` : ''}
+    ${actions ? `<div class="row">${actions}</div>` : ''}
+  </aside>`;
+}
 function dossierHtml(code) {
+  if (isBackground(code)) return backgroundDossier(code);
   const c = S.countries[code]; if (!c) return '<div></div>';
   const mine = myCode(); const exact = canSeeExact(code);
   const agr = S.agreements.filter(a => (a.parties || []).includes(code));
   const myClaim = S.me?.id ? S.claims[S.me.id] : null;
   let actions = '';
   if (S.game && mine && code !== mine) actions += `<button class="btn" data-act="openDm" data-code="${code}">${ico('chat', 16)} Message</button>`;
-  if (!isActive(code)) actions = '';
   if (gmView()) actions += `<button class="btn" data-act="testAs" data-code="${code}">${ico('flag', 16)} Test as ${esc(code)}</button>`;
   if (gmView() && S.game) actions += `<button class="btn" data-act="speakAs" data-code="${code}">${ico('chat', 16)} Speak as ${esc(code)}</button>`;
   if (code === mine) actions += `<a class="btn primary" href="#orders">${ico('cards', 16)} Give orders</a>`;
@@ -1164,13 +1223,13 @@ function dossierHtml(code) {
     <div class="head"><span class="label">Dossier · ${esc(c.region)}</span>
       <div class="name">${flag(code, 24)}${esc(c.name)}</div>
       <div class="row muted" style="font-size:13.5px">${esc(c.gov)} · GDP $${Number(c.gdp).toLocaleString('en-US')} bn · ${esc(c.pop)} m people</div>
-      <div class="row" style="margin-top:4px">${!isActive(code) ? `<span class="chip lo">Not in play this season</span>` : c.player ? `<span class="chip hi">${ico('flag', 12)} ${c.player === S.me?.id ? 'You lead this country' : 'Led by ' + esc(personName(c.player))}</span>` : `<span class="chip">Run by the Game Master</span>`}</div></div>
+      <div class="row" style="margin-top:4px">${c.player ? `<span class="chip hi">${ico('flag', 12)} ${c.player === S.me?.id ? 'You lead this country' : 'Led by ' + esc(personName(c.player))}</span>` : `<span class="chip">Run by the Game Master</span>`}</div></div>
     <div class="stack" style="gap:8px">${STATS.map(([k, l]) => { const v = c.stats[k]; const [ln, , n] = level(v);
       return `<div class="lvl">${ico(k, 16)}<span>${l}</span>${exact ? `<span class="mono">${v}</span>` : `<span class="seg l${n}" title="${ln}"><i></i><i></i><i></i></span>`}</div>`; }).join('')}
       ${exact ? '' : `<p class="muted" style="font-size:12px">Rough levels only. Espionage reveals real figures.</p>`}</div>
     ${mine && code !== mine ? `<div class="stack" style="gap:6px"><span class="label">Relations with ${esc(cname(mine))}</span><div class="row" style="gap:10px">${relChip(rel(mine, code))}<span style="flex:1;min-width:80px">${relBar(rel(mine, code))}</span></div>
       ${relButtons(code) ? `<div class="row">${relButtons(code)}</div>` : ''}</div>` : ''}
-    ${(() => { const rs = sortedCodes().filter(x => x !== code).map(x => [x, rel(code, x)]).sort((a, b) => b[1] - a[1]); const top = rs.filter(r => r[1] >= 25).slice(0, 3), low = rs.filter(r => r[1] <= -25).slice(-3).reverse();
+    ${(() => { const rs = everyCode().filter(x => x !== code).map(x => [x, rel(code, x)]).sort((a, b) => b[1] - a[1]); const top = rs.filter(r => r[1] >= 25).slice(0, 3), low = rs.filter(r => r[1] <= -25).slice(-3).reverse();
       return `<div class="stack" style="gap:6px"><span class="label">Closest friends · biggest rivals</span>
         <div class="row" style="gap:6px">${top.length ? top.map(([x, v]) => `<span class="chip hi">${esc(x)} +${v}</span>`).join('') : '<span class="muted" style="font-size:13px">No close friends</span>'}</div>
         <div class="row" style="gap:6px">${low.length ? low.map(([x, v]) => `<span class="chip lo">${esc(x)} ${v}</span>`).join('') : '<span class="muted" style="font-size:13px">No open rivals</span>'}</div></div>`; })()}
@@ -1302,7 +1361,7 @@ function viewNation() {
   <div class="grid2">
     ${budgetPanel(c)}
     <div class="panel stack"><div class="row" style="justify-content:space-between"><h3>Foreign relations</h3><a class="btn small" href="#diplomacy">${ico('chat', 14)} Diplomacy</a></div>
-      <div class="stack" style="gap:6px">${sortedCodes().filter(x => x !== code).map(x => [x, rel(code, x)]).sort((a, b) => b[1] - a[1]).map(([x, v]) => {
+      <div class="stack" style="gap:6px">${[...sortedCodes(), ...backgroundCodes().filter(x => rel(code, x))].filter(x => x !== code).map(x => [x, rel(code, x)]).sort((a, b) => b[1] - a[1]).map(([x, v]) => {
         const pv = S.relDoc?.prev ? (S.relDoc.prev[relKey(code, x)] ?? 0) : v, d = v - pv;
         return `<div class="relrow"><span>${cc(x)} ${esc(cname(x))}</span>${relBar(v)}<span class="mono" style="color:${relLevel(v)[2]}">${v > 0 ? '+' : ''}${v}</span><span class="d ${d > 0 ? 'up' : d < 0 ? 'down' : ''}">${d ? (d > 0 ? '+' : '') + d : ''}</span></div>`; }).join('')}</div></div>
   </div>
@@ -1353,7 +1412,7 @@ function viewOrders() {
   const deck = ACTIONS.find(a => a[0] === S.cat)[1];
   const slots = S.draft.actions.map((a, i) => { const d = ACTION_BY_KEY[a.key];
     return `<div class="slot" style="--cc:${CAT_COLOR[d.cat]}"><span class="slot-ic">${ico(CAT_ICON[d.cat], 20)}</span><div><div class="t">${esc(d.label)}</div><span class="label">${esc(d.cat)} · ${a.cost} AP</span></div>
-      <div>${d.target ? `<select id="tgt${i}" data-bind="draft.actions.${i}.target" ${locked ? 'disabled' : ''}><option value="">Target country…</option>${others.map(c => `<option value="${c}" ${a.target === c ? 'selected' : ''}>${esc(cname(c))}</option>`).join('')}</select>` : '<span class="muted">No target needed</span>'}</div>
+      <div>${d.target ? `<select id="tgt${i}" data-bind="draft.actions.${i}.target" ${locked ? 'disabled' : ''}><option value="">Target country…</option><optgroup label="In play">${others.map(c => `<option value="${c}" ${a.target === c ? 'selected' : ''}>${esc(cname(c))}</option>`).join('')}</optgroup><optgroup label="Rest of the world (AI-run)">${backgroundCodes().map(c => `<option value="${c}" ${a.target === c ? 'selected' : ''}>${esc(cname(c))}</option>`).join('')}</optgroup></select>` : '<span class="muted">No target needed</span>'}</div>
       <input type="text" id="det${i}" data-bind="draft.actions.${i}.detail" value="${esc(a.detail)}" placeholder="Details: size, terms, conditions" ${locked ? 'disabled' : ''}>
       <button class="btn small" data-act="rmAction" data-i="${i}" aria-label="Remove" ${locked ? 'disabled' : ''}>${ico('x', 14)}</button></div>`; });
   if (S.draft.free.trim()) slots.push(`<div class="slot" style="--cc:#E8EEF4"><span class="slot-ic">${ico('pen', 20)}</span><div><div class="t">Free-text order</div><span class="label">Wildcard · 1 AP</span></div><div class="muted" style="grid-column:span 2;font-size:13.5px">${esc(S.draft.free)}</div><span></span></div>`);
@@ -1386,9 +1445,9 @@ function viewDiplomacy() {
   const mine = myCode();
   const npcCodes = sortedCodes().filter(c => !S.countries[c].player);
   let me = mine;
-  if (gmView()) { if (!S.ui.speakAs || !S.countries[S.ui.speakAs]) S.ui.speakAs = npcCodes[0] || sortedCodes()[0]; me = S.ui.speakAs; }
+  if (gmView()) { if (!S.ui.speakAs || !knownCode(S.ui.speakAs)) S.ui.speakAs = npcCodes[0] || sortedCodes()[0]; me = S.ui.speakAs; }
   const msgs = allMsgs(); const um = unreadMap();
-  const valid = ['assembly', ...(me ? sortedCodes().filter(c => c !== me).map(c => channelFor(me, c)) : [])];
+  const valid = ['assembly', ...(me ? everyCode().filter(c => c !== me).map(c => channelFor(me, c)) : [])];
   if (!valid.includes(S.channel)) S.channel = 'assembly';
   const ch = S.channel; const thread = msgs.filter(m => m.ch === ch);
   const replies = {}; msgs.forEach(m => { if (m.ref) replies[m.ref] = m; });
@@ -1401,7 +1460,7 @@ function viewDiplomacy() {
     const v = code ? rel(me, code) : 0, col = code ? relLevel(v)[2] : 'var(--cool)', n = um[id] || 0;
     return `<button class="chan ${id === ch ? 'on' : ''}" data-act="channel" data-ch="${id}" aria-pressed="${id === ch}">
       ${code ? flag(code, 20) : `<span class="globe-badge big">${ico('globe', 16)}</span>`}
-      <span class="chan-t"><span class="chan-n">${code ? esc(cname(code)) : 'World Assembly'}${code && S.countries[code].player ? '<span class="pl" title="Human player">P</span>' : ''}</span>
+      <span class="chan-t"><span class="chan-n">${code ? esc(cname(code)) : 'World Assembly'}${code && S.countries[code]?.player ? '<span class="pl" title="Human player">P</span>' : ''}</span>
       <span class="chan-p">${esc(preview(id) || (code ? `${relLevel(v)[1]} ${v > 0 ? '+' : ''}${v}` : 'Public · every leader'))}</span></span>
       ${n ? `<span class="cnt">${n}</span>` : code ? `<span class="relpip" style="background:${col}" title="${relLevel(v)[1]} ${v}"></span>` : ''}</button>`; };
   let list = item('assembly', null);
@@ -1410,14 +1469,17 @@ function viewDiplomacy() {
     const recent = c => lastMsg(channelFor(me, c))?.ts || 0;
     const group = (title, arr) => arr.length ? `<div class="chan-h">${title}<span>${arr.length}</span></div>` + arr.sort((x, y) => (recent(y[0]) - recent(x[0])) || (y[1] - x[1])).map(([c]) => item(channelFor(me, c), c)).join('') : '';
     list += group('Allies & friends', others.filter(x => x[1] >= 25)) + group('Neutral', others.filter(x => x[1] > -25 && x[1] < 25)) + group('Rivals', others.filter(x => x[1] <= -25));
+    const bg = backgroundCodes().filter(c => c !== me && !sortedCodes().includes(c) && (lastMsg(channelFor(me, c)) || channelFor(me, c) === ch)).map(c => [c, rel(me, c)]);
+    list += group('Rest of the world', bg);
+    list += `<div class="chan-h">Contact any nation</div><select id="contactNation" data-change="contactNation" aria-label="Contact another nation" style="margin:4px 0 8px"><option value="">Choose a country…</option>${backgroundCodes().filter(c => c !== me).map(c => `<option value="${c}">${esc(cname(c))}</option>`).join('')}</select>`;
   }
   const head = isDM
-    ? `<div class="thread-h">${flag(cp, 30)}<div class="stack" style="gap:2px;flex:1;min-width:0"><h3>${esc(cname(cp))}</h3><span class="muted" style="font-size:12.5px">Private channel · only ${esc(cname(me))}, ${esc(cname(cp))} and the Game Master can read it</span></div>
+    ? `<div class="thread-h">${flag(cp, 30)}<div class="stack" style="gap:2px;flex:1;min-width:0"><h3>${esc(cname(cp))}</h3><span class="muted" style="font-size:12.5px">${isBackground(cp) && !isBackground(me) ? `Private channel · ${esc(cname(cp))} is AI-run; its government answers through the Game Master` : `Private channel · only ${esc(cname(me))}, ${esc(cname(cp))} and the Game Master can read it`}</span></div>
        <div class="stack" style="gap:6px;justify-items:end">${relChip(rel(me, cp))}<span style="width:160px">${relBar(rel(me, cp))}</span></div></div>
        ${relButtons(cp) ? `<div class="row">${relButtons(cp)}</div>` : ''}`
     : `<div class="thread-h"><span class="globe-badge huge">${ico('globe', 22)}</span><div class="stack" style="gap:2px"><h3>World Assembly</h3><span class="muted" style="font-size:12.5px">Public · every leader and the press can read speeches here</span></div></div>`;
   return `
-  ${gmView() ? `<div class="panel row"><span class="label">Speak as</span><select id="speakAsSel" data-change="speakAs" style="max-width:280px">${sortedCodes().map(c => `<option value="${c}" ${c === me ? 'selected' : ''}>${esc(cname(c))}${S.countries[c].player ? ' (player)' : ''}</option>`).join('')}</select><span class="muted" style="font-size:13px">You see every channel of the country you pick. Players see only their own.</span></div>` : ''}
+  ${gmView() ? `<div class="panel row"><span class="label">Speak as</span><select id="speakAsSel" data-change="speakAs" style="max-width:280px"><optgroup label="In play">${sortedCodes().map(c => `<option value="${c}" ${c === me ? 'selected' : ''}>${esc(cname(c))}${S.countries[c].player ? ' (player)' : ''}</option>`).join('')}</optgroup><optgroup label="Rest of the world">${backgroundCodes().map(c => `<option value="${c}" ${c === me ? 'selected' : ''}>${esc(cname(c))}</option>`).join('')}</optgroup></select><span class="muted" style="font-size:13px">You see every channel of the country you pick. Players see only their own.</span></div>` : ''}
   ${!mine && !S.isGM ? `<div class="notice">You can read the World Assembly. Press Join the season on the World screen to take part.</div>` : ''}
   <div class="dip">
     <nav class="panel channels" aria-label="Channels">${list}</nav>
@@ -1516,7 +1578,7 @@ function lobbyGM() {
       ${waiting.length ? `<div class="joined">${waiting.map(([uid]) => `<span class="joined-i">${esc(personName(uid))}<button class="btn small" data-act="rejectClaim" data-uid="${uid}" title="Remove from the season">${ico('x', 11)}</button></span>`).join('')}</div>` : `<p class="muted">Nobody is waiting. ${seated.length ? 'Everyone who joined has a country.' : 'Send your club the link so they can join.'}</p>`}</div>
     <div class="row" style="justify-content:space-between"><h3>Countries this season</h3><span class="muted" style="font-size:13px">${codes.length} in play · ${every.length - codes.length} switched off · switch off a country to leave it out of the season entirely</span></div>
     <div class="roster">${every.map(c => { const uid = S.countries[c].player, on = isActive(c);
-      return `<div class="roster-i ${uid ? 'on' : ''} ${on ? '' : 'off'}">${flag(c, 22)}<span class="stack" style="gap:0;min-width:0"><strong>${esc(cname(c))}</strong><span class="muted" style="font-size:12.5px">${!on ? 'Not in play' : uid ? esc(personName(uid)) : 'Run by you'}</span></span>
+      return `<div class="roster-i ${uid ? 'on' : ''} ${on ? '' : 'off'}">${flag(c, 22)}<span class="stack" style="gap:0;min-width:0"><strong>${esc(cname(c))}</strong><span class="muted" style="font-size:12.5px">${!on ? 'Background nation · AI-run' : uid ? esc(personName(uid)) : 'Run by you'}</span></span>
         <span class="row" style="gap:6px;flex-wrap:nowrap">${uid ? `<button class="btn small" data-act="unassign" data-code="${c}" title="Remove this player">${ico('x', 12)}</button>` : ''}<button class="switch ${on ? 'is-on' : ''}" data-act="toggleActive" data-code="${c}" role="switch" aria-checked="${on}" aria-label="${esc(cname(c))} in play" ${uid ? 'disabled title="Remove the player first"' : ''}><i></i></button></span></div>`; }).join('')}</div>
   </div>
   ${gmTools(codes)}`;
@@ -1528,7 +1590,7 @@ function gmTools(codes) {
     <div class="row" style="flex-wrap:wrap">
       <select id="relA" data-bind="ui.relA" style="max-width:200px">${codes.map(c => `<option value="${c}" ${S.ui.relA === c ? 'selected' : ''}>${esc(cname(c))}</option>`).join('')}</select>
       <span class="muted">and</span>
-      <select id="relB" data-bind="ui.relB" style="max-width:200px">${codes.map(c => `<option value="${c}" ${S.ui.relB === c ? 'selected' : ''}>${esc(cname(c))}</option>`).join('')}</select>
+      <select id="relB" data-bind="ui.relB" style="max-width:200px">${everyCode().map(c => `<option value="${c}" ${S.ui.relB === c ? 'selected' : ''}>${esc(cname(c))}</option>`).join('')}</select>
       <span class="muted">now ${relChip(rel(S.ui.relA, S.ui.relB))}</span>
       <input type="text" id="relV" data-bind="ui.relV" value="${esc(S.ui.relV)}" class="mono" style="width:80px" aria-label="New value from -100 to 100">
       <button class="btn" data-act="setRel">Set</button></div></div></details>
@@ -1667,10 +1729,13 @@ function buildExport() {
   L.push(`- "Cut/Raise taxes" and "Raise/Cut defence budget" orders shift the policy one step. You may still change economy or approval for the one-off shock of the decision.`);
   L.push(`- "Improve relations" gives +5 and "Denounce" gives -8 to that pair. Add more in "relations" only if the other side reacts (e.g. a warm reply, or a counter-insult). Treaty partners gain +1 per turn (+2 for defence pacts).`);
   L.push(`- Other treasury costs and gains ARE yours to set: stimulus, aid, war, disasters, sanctions, trade deals.`, '');
-  L.push(`WORLD STATE (stats | policy | budget forecast)${sortedCodes().length < allCodes().length ? ` — only these ${sortedCodes().length} countries are in play this season; leave every other country out of changes, briefings and relations` : ''}`);
+  L.push(`WORLD STATE (stats | policy | budget forecast) — the ${sortedCodes().length} countries in play`);
   sortedCodes().forEach(c => { const x = S.countries[c]; const b = budget(x); L.push(`${c} ${x.name} | ${x.gov} | ${seatOf(c) ? 'PLAYER' : 'GM-run'} | ` + STAT_KEYS.map(k => `${k}=${x.stats[k]}`).join(' ') + ` | tax ${b.policy.tax}, defence ${b.policy.defence} | treasury ${b.treasury >= 0 ? '+' : ''}${b.treasury}/turn`); });
+  L.push('', `THE REST OF THE WORLD`);
+  L.push(`Every other country exists and is alive: ${backgroundCodes().map(c => `${c} ${cname(c)}`).join(', ')}.`);
+  L.push(`These background nations have no player and no stats; you run them. They watch the players and react as their real governments would: statements, condemnations, mediation offers, trade deals, sanctions, aid, refugee flows, votes, military posturing, alliances (NATO, EU, ASEAN, African Union, Gulf states, BRICS and so on). Make the world feel full: most articles should show at least one of them reacting, and a player who targets or messages one must get a believable answer in the news or a briefing. Use their ISO codes in "countries" and in "relations". Never put them in "changes", "briefings" or "policies".`);
   L.push('', `RELATIONS (pairs not listed are 0)`);
-  const pairs = Object.entries(S.relations || startRelations()).filter(([k, v]) => v && k.split('-').every(isActive)).sort((a, b) => a[0].localeCompare(b[0]));
+  const pairs = Object.entries(S.relations || startRelations()).filter(([k, v]) => v && k.split('-').some(isActive)).sort((a, b) => a[0].localeCompare(b[0]));
   L.push(pairs.map(([k, v]) => `${k} ${v > 0 ? '+' : ''}${v}`).join(', ') || 'All neutral.');
   L.push('', `AGREEMENTS IN FORCE`);
   if (S.agreements.length) S.agreements.forEach(a => L.push(`[${a.id}] ${typeLabel(a.type)} between ${(a.parties || []).join(', ')}: ${a.terms || 'no terms given'} (since ${a.since})`)); else L.push('None.');
@@ -1713,7 +1778,7 @@ function buildExport() {
   "npc_next": [{"country": "RUS", "plan": "what this GM-run country intends next turn"}]
 }`);
   L.push(`image_prompt: a concrete scene for an illustration (a place, objects, weather, vehicles, a crowd seen from a distance). No text, captions or logos, and no recognisable real people. Don't describe the visual style; the game adds it.`);
-  L.push(`Write 5-8 articles. Write a briefing for every PLAYER country. Only add agreements that both sides accepted. Use "policies" only to change tax or defence policy of GM-run countries. "relations" may be empty.`);
+  L.push(`Write 5-8 articles. Write a briefing for every PLAYER country. In "relations", include how background nations react to the players (e.g. a player's sanctions on DEU anger FRA and POL too). Only add agreements that both sides accepted. Use "policies" only to change tax or defence policy of GM-run countries. "relations" may be empty.`);
   return L.join('\n');
 }
 function parseReply(text) {
@@ -1798,11 +1863,11 @@ function autoEffects() {
     const o = seatOf(code) ? S.allOrders[seatOf(code)] : null; const acts = o?.turn === g.turn ? (o.actions || []) : [];
     const step = (k, d) => { p[k] = STEP[clamp(STEP.indexOf(p[k]) + d, 0, 2)]; };
     acts.forEach(a => { if (a.key === 'tax_cut') step('tax', -1); if (a.key === 'tax_raise') step('tax', 1); if (a.key === 'def_up') step('defence', 1); if (a.key === 'def_down') step('defence', -1);
-      if ((a.key === 'improve' || a.key === 'denounce') && S.countries[a.target]) { const k = relKey(code, a.target); out.rel[k] = (out.rel[k] || 0) + (a.key === 'improve' ? 5 : -8); } });
+      if ((a.key === 'improve' || a.key === 'denounce') && knownCode(a.target)) { const k = relKey(code, a.target); out.rel[k] = (out.rel[k] || 0) + (a.key === 'improve' ? 5 : -8); } });
     (S.preview?.policies || []).filter(x => x.country === code).forEach(x => { if (TAX[x.tax]) p.tax = x.tax; if (DEF[x.defence]) p.defence = x.defence; });
     out.policy[code] = p; out.budget[code] = budget(c, p);
   }
-  S.agreements.forEach(a => { const ps = (a.parties || []).filter(x => S.countries[x]); const d = a.type === 'defence' ? 2 : 1;
+  S.agreements.forEach(a => { const ps = (a.parties || []).filter(knownCode); const d = a.type === 'defence' ? 2 : 1;
     for (let i = 0; i < ps.length; i++) for (let j = i + 1; j < ps.length; j++) { const k = relKey(ps[i], ps[j]); out.rel[k] = (out.rel[k] || 0) + d; } });
   return out;
 }
@@ -1863,7 +1928,7 @@ async function publishTurn() {
   }
   const oldPairs = { ...(S.relations || startRelations()) }, pairs = { ...oldPairs };
   Object.entries(auto.rel).forEach(([k, d]) => pairs[k] = clamp((pairs[k] || 0) + d, -100, 100));
-  (p.relations || []).forEach(r => { if (!S.countries[r.a] || !S.countries[r.b] || r.a === r.b) return; const d = Number(r.delta); if (!isFinite(d)) return; const k = relKey(r.a, r.b); pairs[k] = Math.round(clamp((pairs[k] || 0) + d, -100, 100)); });
+  (p.relations || []).forEach(r => { if (!knownCode(r.a) || !knownCode(r.b) || r.a === r.b) return; const d = Number(r.delta); if (!isFinite(d)) return; const k = relKey(r.a, r.b); pairs[k] = Math.round(clamp((pairs[k] || 0) + d, -100, 100)); });
   await db.doc('world/relations').set({ pairs, prev: oldPairs, turn: t });
   for (const b of p.briefings) { if (!S.countries[b.country]) continue; const uid = seatOf(b.country) || 'test-' + b.country; if (b.text) await db.doc(`briefings/${uid}/items/t${t}`).set({ turn: t, date: g.date, text: b.text }); }
   const list = S.agreements.filter(a => !p.agreements.end.includes(a.id)).concat(p.agreements.add.filter(a => a.parties.length).map(a => ({ id: rid(), ...a, since: g.date, turn: t })));
@@ -1882,6 +1947,7 @@ async function sendMsg(kind, extra) {
   S.forceBottom = true; render();
   const ref = await S.db.collection(`channels/${S.channel}/msgs`).add({ ...body, uid: S.me.id });
   notifyBot({ type: 'message', ch: body.ch, msgId: ref?.id });
+  if (body.ch.startsWith('dm:') && typeof noteContact === 'function') noteContact(body.ch);
 }
 
 /* ---------- Events ---------- */
@@ -1908,6 +1974,7 @@ document.addEventListener('change', e => {
   if (k === 'newsTurn') S.newsTurn = Number(el.value);
   if (k === 'speakAs') { S.ui.speakAs = el.value; S.channel = 'assembly'; }
   if (k === 'playAs') { setPlayAs(el.value); return; }
+  if (k === 'contactNation' && el.value) { const me = gmView() ? S.ui.speakAs : myCode(); if (me) { S.channel = channelFor(me, el.value); S.ui.propOpen = false; if (typeof syncChannels === 'function') syncChannels(); } }
   if (k === 'goto' && el.value) { S.sel = el.value; MAP?.zoomToCountry(el.value); }
   render();
 });
@@ -1929,14 +1996,14 @@ document.addEventListener('click', e => {
     case 'cat': S.cat = b.dataset.cat; render(); break;
     case 'play': { const d = ACTION_BY_KEY[b.dataset.key]; const why = cantAdd(d.key, ''); if (why) { flash(why, true); break; } S.draft.actions.push({ key: d.key, cost: d.cost, target: '', detail: '' }); render(); break; }
     case 'rmAction': S.draft.actions.splice(Number(b.dataset.i), 1); render(); break;
-    case 'openDm': S.channel = channelFor(myCode(), b.dataset.code); location.hash = 'diplomacy'; break;
+    case 'openDm': S.channel = channelFor(myCode(), b.dataset.code); if (typeof syncChannels === 'function') syncChannels(); location.hash = 'diplomacy'; break;
     case 'speakAs': S.ui.speakAs = b.dataset.code; S.channel = 'assembly'; location.hash = 'diplomacy'; break;
     case 'submitOrders': {
       const problem = planProblem(); if (problem) { flash(problem, true); break; }
       const body = { turn: S.game.turn, country: myCode(), actions: JSON.parse(JSON.stringify(S.draft.actions)), free: S.draft.free.trim(), statement: S.draft.statement.trim(), submittedAt: Date.now() };
       quick(() => db.doc('orders/' + seatId()).set(body), 'Orders sent. They resolve after the deadline.');
       break; }
-    case 'channel': S.channel = b.dataset.ch; S.ui.propOpen = false; render(); break;
+    case 'channel': S.channel = b.dataset.ch; S.ui.propOpen = false; if (typeof syncChannels === 'function') syncChannels(); render(); break;
     case 'toggleProp': S.ui.propOpen = !S.ui.propOpen; render(); break;
     case 'send': quick(() => S.ui.propOpen && S.channel.startsWith('dm:') ? sendMsg('proposal', { proposal: { type: S.ui.propType, terms: S.ui.propTerms.trim() } }) : sendMsg('msg')); break;
     case 'reply': S.channel = b.dataset.ch; quick(() => sendMsg(b.dataset.kind, { ref: b.dataset.id, text: '' })); break;
@@ -1965,7 +2032,7 @@ document.addEventListener('click', e => {
     case 'relCard': { if (!S.game || S.game.phase === 'locked') break; syncDraft(); const d = ACTION_BY_KEY[b.dataset.key]; const why = cantAdd(d.key, b.dataset.code);
       if (why) { flash(why, true); break; }
       S.draft.actions.push({ key: d.key, cost: d.cost, target: b.dataset.code, detail: '' }); flash(`"${d.label}" with ${cname(b.dataset.code)} added to your plan. Press Send orders on the Orders tab to submit it.`); break; }
-    case 'setRel': { const a = S.ui.relA, c = S.ui.relB, v = Math.round(clamp(Number(S.ui.relV), -100, 100)); if (!S.countries[a] || !S.countries[c] || a === c || !isFinite(v)) { S.err = 'Pick two different countries and a value from -100 to 100.'; render(); break; }
+    case 'setRel': { const a = S.ui.relA, c = S.ui.relB, v = Math.round(clamp(Number(S.ui.relV), -100, 100)); if (!knownCode(a) || !knownCode(c) || a === c || !isFinite(v)) { S.err = 'Pick two different countries and a value from -100 to 100.'; render(); break; }
       guard(() => db.doc('world/relations').set({ ...(S.relDoc || {}), pairs: { ...(S.relations || startRelations()), [relKey(a, c)]: v } }), `Relations ${cname(a)}–${cname(c)} set to ${v}.`); break; }
     case 'discard': S.preview = null; render(); break;
     case 'publish': guard(publishTurn, 'Turn published. Players can read the news now.'); break;
@@ -2047,7 +2114,12 @@ async function refreshNames() {
   if (changed) render();
 }
 /* Messages live in channels/<channel>/msgs. The database only lets the two countries in a private channel (and the GM) read it. */
-const chanSubs = {};
+const chanSubs = {}, contactSub = {};
+function noteContact(ch) {
+  const [a, b] = ch.slice(3).split('-');
+  [[a, b], [b, a]].forEach(([x, y]) => { if (!S.countries[x] || (!S.isGM && x !== myCode()) || S.contacts?.[y] && x === myCode()) return;
+    S.db.doc('contacts/' + x).set({ [y]: true }, { merge: true }).catch(() => {}); });
+}
 function syncChannels() {
   if (!S.db || !S.me?.id) return;
   if (S.isGM) {
@@ -2055,7 +2127,14 @@ function syncChannels() {
     return;
   }
   const mine = myCode(); const want = new Set(['assembly']);
-  if (mine) sortedCodes().forEach(c => { if (c !== mine) want.add(channelFor(mine, c)); });
+  /* Contacts with background nations live in contacts/<CODE>, private to that country's leader and the GM. */
+  if (contactSub.code !== mine) { if (contactSub.off) contactSub.off(); contactSub.off = null; contactSub.code = mine; S.contacts = {};
+    if (mine && !S.playAs) contactSub.off = S.db.doc('contacts/' + mine).onSnapshot(s => { S.contacts = s.exists ? s.data() : {}; syncChannels(); render(); }, () => {}); }
+  if (mine) {
+    allCodes().forEach(c => { if (c !== mine) want.add(channelFor(mine, c)); });
+    Object.keys(S.contacts || {}).forEach(c => { if (c !== mine) want.add(channelFor(mine, c)); });
+    if (S.channel.startsWith('dm:') && S.channel.slice(3).split('-').includes(mine)) want.add(S.channel);
+  }
   for (const ch of Object.keys(chanSubs)) if (!want.has(ch)) { chanSubs[ch](); delete chanSubs[ch]; delete S.msgs[ch]; }
   for (const ch of want) if (!chanSubs[ch]) chanSubs[ch] = S.db.collection(`channels/${ch}/msgs`).orderBy('ts', 'desc').limit(150).onSnapshot(s => { S.msgs[ch] = s.docs.map(d => ({ id: d.id, ...d.data(), _path: `channels/${ch}/msgs/${d.id}` })); render(); }, e => console.warn(ch, e));
 }

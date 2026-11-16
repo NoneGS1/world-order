@@ -1254,7 +1254,7 @@ function dossierHtml(code) {
 
 /* ----- News ----- */
 /* ---------- News pictures (made by the GM, e.g. in ChatGPT) ---------- */
-const IMG_STYLE = 'Style: vintage 1940s press photograph, black-and-white with a warm sepia tone, visible film grain, documentary framing, wide 16:9 shot. No text, no captions, no logos, no recognisable real people.';
+const IMG_STYLE = 'Style: modern news photograph from 2027, full colour, shot on a professional digital camera, sharp and realistic, like Reuters or AP photojournalism. Present-day setting: modern cars, buildings, clothing, phones and technology. Wide 16:9 shot. No text, no captions, no logos, no watermarks, no recognisable real people.';
 const IMG_MAX = 240000; // characters of base64; keeps each picture far under the database's per-document limit
 async function imageToDataURL(file) {
   if (!file || !/^image\//.test(file.type)) throw new Error('That file is not a picture.');
@@ -1801,7 +1801,7 @@ function previewHtml(p) {
 function buildExport() {
   const g = S.game; const L = [];
   const since = g.lastPublished || 0;
-  L.push(`You are the simulation engine for "World Order", a political strategy game played by a school politics club. Each player leads one real country; the game master (me) runs the rest. One turn = 2 in-game weeks.`);
+  L.push(`You are the simulation engine for "World Order", a political strategy game played by a university politics club (NewUU, Tashkent). It is set in the present day: the season starts in January 2027 and every event, technology and detail must fit the late 2020s. Each player leads one real country; the game master (me) runs the rest. One turn = 2 in-game weeks.`);
   L.push(`Resolve TURN ${g.turn}, covering ${fmtRange(g.date)}.`, '');
   L.push(`RULES`);
   L.push(`- Eight indicators per country, each 0-100: ${STAT_KEYS.join(', ')}.`);
@@ -1866,7 +1866,7 @@ function buildExport() {
   "policies": [{"country": "RUS", "tax": "low|normal|high", "defence": "low|normal|high"}],
   "npc_next": [{"country": "RUS", "plan": "what this GM-run country intends next turn"}]
 }`);
-  L.push(`image_prompt: a concrete scene for an illustration (a place, objects, weather, vehicles, a crowd seen from a distance). No text, captions or logos, and no recognisable real people. Don't describe the visual style; the game adds it.`);
+  L.push(`image_prompt: a concrete present-day (2027) scene for a news photo (a place, objects, weather, modern vehicles, a crowd seen from a distance). No text, captions or logos, and no recognisable real people. Don't describe the visual style; the game adds it.`);
   L.push(`Write 5-8 articles. Write a briefing for every PLAYER country. In "relations", include how background nations react to the players (e.g. a player's sanctions on DEU anger FRA and POL too). Only add agreements that both sides accepted. Use "policies" only to change tax or defence policy of GM-run countries. "relations" may be empty.`);
   return L.join('\n');
 }

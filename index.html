@@ -1084,7 +1084,7 @@ function viewMap() {
   const mine = myCode();
   if (!S.sel || !S.countries[S.sel] || !isActive(S.sel)) S.sel = mine || (isActive('USA') ? 'USA' : sortedCodes()[0]);
   let hero = '';
-  if (S.game === null && gmView()) hero = `<div class="hero"><span class="label">Game Master briefing</span><h1>Open the lobby</h1><p>This creates the 20 nations. Players can then sign in, request a country and talk to each other. Nothing runs until you press Begin season.</p><div class="row"><button class="btn big primary" data-act="setup">Open the lobby</button></div></div>`;
+  if (S.game === null && gmView()) hero = `<div class="hero"><span class="label">Game Master briefing</span><h1>Open the lobby</h1><p>This creates the 20 nations. Players can then sign in, join the season and talk to each other. Nothing runs until you press Begin season.</p><div class="row"><button class="btn big primary" data-act="setup">Open the lobby</button></div></div>`;
   else if (S.game && !mine && !S.isGM && S.me?.id) hero = joinCard();
   else if (S.game === null && !S.isGM && S.me?.id) hero = `<div class="notice">The lobby isn't open yet. Once the Game Master opens it, you can join the season here.</div>`;
   else hero = turnCard();
@@ -1331,7 +1331,7 @@ function viewDiplomacy() {
     : `<div class="thread-h"><span class="globe-badge huge">${ico('globe', 22)}</span><div class="stack" style="gap:2px"><h3>World Assembly</h3><span class="muted" style="font-size:12.5px">Public · every leader and the press can read speeches here</span></div></div>`;
   return `
   ${gmView() ? `<div class="panel row"><span class="label">Speak as</span><select id="speakAsSel" data-change="speakAs" style="max-width:280px">${sortedCodes().map(c => `<option value="${c}" ${c === me ? 'selected' : ''}>${esc(cname(c))}${S.countries[c].player ? ' (player)' : ''}</option>`).join('')}</select><span class="muted" style="font-size:13px">You see every channel of the country you pick. Players see only their own.</span></div>` : ''}
-  ${!mine && !S.isGM ? `<div class="notice">You can read the World Assembly. Request a country on the World map to take part.</div>` : ''}
+  ${!mine && !S.isGM ? `<div class="notice">You can read the World Assembly. Press Join the season on the World screen to take part.</div>` : ''}
   <div class="dip">
     <nav class="panel channels" aria-label="Channels">${list}</nav>
     <section class="panel thread">
@@ -1389,7 +1389,7 @@ function viewGM() {
     <p class="muted">${submittedCount} of ${assigned.length} players have sent orders. Tonight: lock orders, export, paste into Claude, import the reply, review, publish.</p>
     <div class="scroll-x"><table><thead><tr><th>Country</th><th>Player</th><th>Orders</th><th></th></tr></thead><tbody>
     ${assigned.length ? assigned.map(c => { const uid = S.countries[c].player; const o = S.allOrders[uid]; const ok = o?.turn === g.turn;
-      return `<tr><td>${cc(c)} ${esc(cname(c))}</td><td>${esc(personName(uid))}</td><td>${ok ? `<span class="chip hi">Sent</span> <span class="muted" style="font-size:12px">${(o.actions || []).length} cards${o.free ? ' + wildcard' : ''}</span>` : `<span class="chip lo">Missing</span>`}</td><td><button class="btn small" data-act="unassign" data-code="${c}">Remove player</button></td></tr>`; }).join('') : `<tr><td colspan="4" class="muted">No players yet. Send your club the site link; they sign in with their @newuu.uz account and request a country. Requests appear below.</td></tr>`}
+      return `<tr><td>${cc(c)} ${esc(cname(c))}</td><td>${esc(personName(uid))}</td><td>${ok ? `<span class="chip hi">Sent</span> <span class="muted" style="font-size:12px">${(o.actions || []).length} cards${o.free ? ' + wildcard' : ''}</span>` : `<span class="chip lo">Missing</span>`}</td><td><button class="btn small" data-act="unassign" data-code="${c}">Remove player</button></td></tr>`; }).join('') : `<tr><td colspan="4" class="muted">No players yet. Send your club the site link; they sign in with their @newuu.uz account and press Join the season. Players who join appear below.</td></tr>`}
     </tbody></table></div>
     ${(() => { const tests = sortedCodes().filter(c => S.allOrders['test-' + c]?.turn === g.turn); return tests.length ? `<div class="row"><span class="label">Test seats with orders this turn</span>${tests.map(cc).join('')}</div>` : `<p class="muted" style="font-size:13px">Tip: use <strong>View as</strong> at the top right to test any country as its player.</p>`; })()}
     ${claims.length ? `<h3>Waiting to join</h3><div class="stack">${claims.map(([uid]) => `<div class="row lobby-req"><strong>${esc(personName(uid))}</strong><span class="muted">wants to join the season</span><span style="flex:1"></span><button class="btn small primary" data-act="seatOne" data-uid="${uid}">Seat in a random country</button><button class="btn small" data-act="rejectClaim" data-uid="${uid}">Decline</button></div>`).join('')}</div>` : ''}
